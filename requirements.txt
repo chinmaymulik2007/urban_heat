@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+pydantic
+pandas
+plotly
+folium
+earthengine-api
+# ... (Include any other custom packages needed by your sub-utils)

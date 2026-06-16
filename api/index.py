@@ -22,6 +22,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# INITIALIZE GEE ONCE AT GLOBAL STARTUP (Prevents routing blocks on Vercel)
+try:
+    init_gee()
+except Exception as e:
+    print(f"Global Earth Engine initialization failed: {e}")
+
 class SimulationRequest(BaseModel):
     city_name: str
     buffer_km: int
@@ -35,7 +41,13 @@ def health_check():
 @app.post("/api/simulate")
 def run_simulation(data: SimulationRequest):
     try:
-        init_gee()
+        # Double check initialization context if it failed at startup
+        # (This acts as a clean safety fallback)
+        try:
+            init_gee()
+        except Exception:
+            pass
+            
         city = geocode_city(data.city_name)
         if city is None:
             raise HTTPException(status_code=404, detail="City not found.")

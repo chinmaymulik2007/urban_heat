@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Urban Heat Mitigation Simulator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+</head>
+<body class="bg-gray-50 text-gray-800">
+
+    <div class="container mx-auto p-6 max-w-6xl">
+        <h1 class="text-3xl font-bold mb-2">Urban Heat Mitigation Simulator</h1>
+        <p class="text-gray-600 mb-6">Enter a city name to fetch Earth Engine data and estimate cooling from interventions.</p>
+
+        <div class="bg-white p-6 rounded-lg shadow-sm border mb-6 grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+            <div>
+                <label class="block text-sm font-medium mb-1">City Name</label>
+                <input id="cityName" type="text" value="Mumbai" class="w-full p-2 border rounded">
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1">Radius (km): <span id="radiusVal">10</span></label>
+                <input id="bufferKm" type="range" min="2" max="50" value="10" class="w-full" oninput="document.getElementById('radiusVal').innerText=this.value">
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1">Date Range</label>
+                <div class="flex space-x-1">
+                    <input id="startDate" type="date" value="2025-04-01" class="w-full p-1 border rounded text-sm">
+                    <input id="endDate" type="date" value="2025-06-30" class="w-full p-1 border rounded text-sm">
+                </div>
+            </div>
+            <button onclick="runSimulation()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium p-2 rounded transition">Run Simulation</button>
+        </div>
+
+        <div id="status" class="hidden text-center p-4 my-4 font-semibold text-blue-600">Processing...</div>
+
+        <div id="results" class="hidden space-y-6">
+            <div id="cityNameSuccess" class="bg-green-100 text-green-800 p-3 rounded font-medium"></div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="bg-white p-6 rounded-lg shadow-sm border">
+                    <h2 class="text-xl font-bold mb-4 border-b pb-2">Baseline Heat</h2>
+                    <div class="space-y-4">
+                        <div><span class="text-sm text-gray-500">Average LST</span> <div id="metricLst" class="text-2xl font-bold"></div></div>
+                        <div><span class="text-sm text-gray-500">Hotspot Share</span> <div id="metricHotspot" class="text-2xl font-bold"></div></div>
+                        <div><span class="text-sm text-gray-500">City Area Mean NDVI</span> <div id="metricNdvi" class="text-2xl font-bold"></div></div>
+                    </div>
+                </div>
+
+                <div class="bg-white p-6 rounded-lg shadow-sm border">
+                    <h2 class="text-xl font-bold mb-4 border-b pb-2">Map View</h2>
+                    <iframe id="mapFrame" class="w-full h-[320px] border rounded" srcdoc=""></iframe>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-lg shadow-sm border">
+                <h2 class="text-xl font-bold mb-4 border-b pb-2">Cooling Impact Chart</h2>
+                <div id="plotlyChart" class="w-full h-80"></div>
+            </div>
+
+            <div id="bestScenarioAlert" class="bg-blue-50 border-l-4 border-blue-500 text-blue-700 p-4 rounded shadow-sm"></div>
+        </div>
+    </div>
+
+    <script>
+        async function runSimulation() {
+            const statusDiv = document.getElementById('status');
+            const resultsDiv = document.getElementById('results');
+            
+            statusDiv.classList.remove('hidden');
+            statusDiv.innerText = "Connecting to Earth Engine and processing models... (may take up to a minute)";
+            resultsDiv.add('hidden');
+
+            const payload = {
+                city_name: document.getElementById('cityName').value,
+                buffer_km: parseInt(document.getElementById('bufferKm').value),
+                start_date: document.getElementById('startDate').value,
+                end_date: document.getElementById('endDate').value
+            };
+
+            try {
+                const response = await fetch('/api/simulate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) throw new Error(await response.text());
+                const data = await response.json();
+
+                // 1. Set text metrics
+                document.getElementById('cityNameSuccess').innerText = `✓ Loaded data for ${data.display_name}`;
+                document.getElementById('metricLst').innerText = `${data.metrics.baseline_lst_c.toFixed(2)} °C`;
+                document.getElementById('metricHotspot').innerText = `${data.metrics.hotspot_share_pct.toFixed(2)} %`;
+                document.getElementById('metricNdvi').innerText = `${data.metrics.mean_ndvi.toFixed(2)}`;
+
+                // 2. Load Folium HTML straight into iframe srcdoc
+                document.getElementById('mapFrame').srcdoc = data.map_html;
+
+                // 3. Highlight top recommendation
+                document.getElementById('bestScenarioAlert').innerHTML = `
+                    <strong>Best Scenario:</strong> ${data.best_scenario.Scenario} | 
+                    <strong>Cooling:</strong> ${data.best_scenario['Cooling reduction (°C)'].toFixed(2)} °C | 
+                    <strong>Reduction:</strong> ${data.best_scenario['Cooling reduction (%)'].toFixed(2)}%
+                `;
+
+                // 4. Construct Bar Chart natively via Plotly.js
+                const scenarios = data.scenarios;
+                const trace = {
+                    x: scenarios.map(s => s.Scenario),
+                    y: scenarios.map(s => s['Cooling reduction (°C)']),
+                    type: 'bar',
+                    marker: { color: 'rgba(59, 130, 246, 0.7)' }
+                };
+                const layout = {
+                    title: 'Cooling reduction (°C) per mitigation strategy',
+                    margin: { t: 40, b: 40, l: 40, r: 20 }
+                };
+                Plotly.newPlot('plotlyChart', [trace], layout);
+
+                resultsDiv.classList.remove('hidden');
+            } catch (err) {
+                alert(`Simulation failed: ${err.message}`);
+            } finally {
+                statusDiv.classList.add('hidden');
+            }
+        }
+    </script>
+</body>
+</html>

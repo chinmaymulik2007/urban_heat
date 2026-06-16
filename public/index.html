@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Urban Heat Mitigation Simulator</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
 </head>
 <body class="bg-gray-50 text-gray-800">
 
@@ -32,29 +32,55 @@
             <button onclick="runSimulation()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium p-2 rounded transition">Run Simulation</button>
         </div>
 
-        <div id="status" class="hidden text-center p-4 my-4 font-semibold text-blue-600">Processing...</div>
+        <div id="status" class="hidden text-center p-4 my-4 font-semibold text-blue-600 bg-blue-50 rounded border border-blue-200">Processing...</div>
 
         <div id="results" class="hidden space-y-6">
-            <div id="cityNameSuccess" class="bg-green-100 text-green-800 p-3 rounded font-medium"></div>
+            <div id="cityNameSuccess" class="bg-green-100 text-green-800 p-3 rounded font-medium border border-green-200"></div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div class="bg-white p-6 rounded-lg shadow-sm border">
-                    <h2 class="text-xl font-bold mb-4 border-b pb-2">Baseline Heat</h2>
-                    <div class="space-y-4">
-                        <div><span class="text-sm text-gray-500">Average LST</span> <div id="metricLst" class="text-2xl font-bold"></div></div>
-                        <div><span class="text-sm text-gray-500">Hotspot Share</span> <div id="metricHotspot" class="text-2xl font-bold"></div></div>
-                        <div><span class="text-sm text-gray-500">City Area Mean NDVI</span> <div id="metricNdvi" class="text-2xl font-bold"></div></div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="bg-white p-6 rounded-lg shadow-sm border md:col-span-1 flex flex-col justify-between">
+                    <div>
+                        <h2 class="text-xl font-bold mb-4 border-b pb-2">Baseline Heat</h2>
+                        <div class="space-y-4">
+                            <div>
+                                <span class="text-sm text-gray-500 font-medium">Average LST</span> 
+                                <div id="metricLst" class="text-2xl font-bold text-gray-900"></div>
+                            </div>
+                            <div>
+                                <span class="text-sm text-gray-500 font-medium">Hotspot Share</span> 
+                                <div id="metricHotspot" class="text-2xl font-bold text-gray-900"></div>
+                            </div>
+                            <div>
+                                <span class="text-sm text-gray-500 font-medium">City Area Mean NDVI</span> 
+                                <div id="metricNdvi" class="text-2xl font-bold text-gray-900"></div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                <div class="bg-white p-6 rounded-lg shadow-sm border">
+                <div class="bg-white p-6 rounded-lg shadow-sm border md:col-span-2">
                     <h2 class="text-xl font-bold mb-4 border-b pb-2">Map View</h2>
-                    <iframe id="mapFrame" class="w-full h-[320px] border rounded" srcdoc=""></iframe>
+                    <iframe id="mapFrame" class="w-full h-[320px] border rounded bg-gray-100" srcdoc=""></iframe>
                 </div>
             </div>
 
+            <div class="bg-white p-6 rounded-lg shadow-sm border overflow-x-auto">
+                <h2 class="text-xl font-bold mb-4 border-b pb-2">Scenario Strategy Metrics</h2>
+                <table class="w-full text-left text-sm border-collapse">
+                    <thead>
+                        <tr class="bg-gray-100 border-b">
+                            <th class="p-3 font-semibold">Scenario</th>
+                            <th class="p-3 font-semibold">Target Value</th>
+                            <th class="p-3 font-semibold">Cooling Reduction (°C)</th>
+                            <th class="p-3 font-semibold">Cooling Reduction (%)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="scenarioTableBody"></tbody>
+                </table>
+            </div>
+
             <div class="bg-white p-6 rounded-lg shadow-sm border">
-                <h2 class="text-xl font-bold mb-4 border-b pb-2">Cooling Impact Chart</h2>
+                <h2 class="text-xl font-bold mb-4 border-b pb-2">Cooling Impact Performance</h2>
                 <div id="plotlyChart" class="w-full h-80"></div>
             </div>
 
@@ -68,8 +94,10 @@
             const resultsDiv = document.getElementById('results');
             
             statusDiv.classList.remove('hidden');
-            statusDiv.innerText = "Connecting to Earth Engine and processing models... (may take up to a minute)";
-            resultsDiv.add('hidden');
+            statusDiv.innerText = "Connecting to Earth Engine and processing models... (takes up to 30-45 seconds)";
+            
+            // FIXED LINE 72: Added .classList correctly
+            resultsDiv.classList.add('hidden');
 
             const payload = {
                 city_name: document.getElementById('cityName').value,
@@ -78,8 +106,11 @@
                 end_date: document.getElementById('endDate').value
             };
 
+            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            const apiUrl = isLocal ? 'http://127.0.0.1:8000/api/simulate' : '/api/simulate';
+
             try {
-                const response = await fetch('/api/simulate', {
+                const response = await fetch(apiUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
@@ -88,39 +119,53 @@
                 if (!response.ok) throw new Error(await response.text());
                 const data = await response.json();
 
-                // 1. Set text metrics
-                document.getElementById('cityNameSuccess').innerText = `✓ Loaded data for ${data.display_name}`;
+                // 1. Populate metrics
+                document.getElementById('cityNameSuccess').innerText = `✓ Loaded data metrics for: ${data.display_name}`;
                 document.getElementById('metricLst').innerText = `${data.metrics.baseline_lst_c.toFixed(2)} °C`;
                 document.getElementById('metricHotspot').innerText = `${data.metrics.hotspot_share_pct.toFixed(2)} %`;
                 document.getElementById('metricNdvi').innerText = `${data.metrics.mean_ndvi.toFixed(2)}`;
 
-                // 2. Load Folium HTML straight into iframe srcdoc
+                // 2. Load Folium map string content
                 document.getElementById('mapFrame').srcdoc = data.map_html;
 
-                // 3. Highlight top recommendation
+                // 3. Render Table
+                const tableBody = document.getElementById('scenarioTableBody');
+                tableBody.innerHTML = "";
+                data.scenarios.forEach(row => {
+                    const tr = document.createElement('tr');
+                    tr.className = "border-b hover:bg-gray-50";
+                    tr.innerHTML = `
+                        <td class="p-3 font-medium text-gray-900">${row.Scenario}</td>
+                        <td class="p-3 text-gray-600">${row.Target_Value !== undefined ? row.Target_Value.toFixed(2) : 'N/A'}</td>
+                        <td class="p-3 text-blue-600 font-semibold">${row['Cooling reduction (°C)'].toFixed(2)} °C</td>
+                        <td class="p-3 text-green-600 font-semibold">${row['Cooling reduction (%)'].toFixed(2)} %</td>
+                    `;
+                    tableBody.appendChild(tr);
+                });
+
+                // 4. Set Alert recommendation textual content
                 document.getElementById('bestScenarioAlert').innerHTML = `
-                    <strong>Best Scenario:</strong> ${data.best_scenario.Scenario} | 
-                    <strong>Cooling:</strong> ${data.best_scenario['Cooling reduction (°C)'].toFixed(2)} °C | 
-                    <strong>Reduction:</strong> ${data.best_scenario['Cooling reduction (%)'].toFixed(2)}%
+                    <strong>Optimal Strategy:</strong> ${data.best_scenario.Scenario} yields the highest benefit, 
+                    reducing ambient heat values by <strong>${data.best_scenario['Cooling reduction (°C)'].toFixed(2)} °C</strong> 
+                    (${data.best_scenario['Cooling reduction (%)'].toFixed(2)}% drop).
                 `;
 
-                // 4. Construct Bar Chart natively via Plotly.js
-                const scenarios = data.scenarios;
+                // 5. Render Chart via Upgraded Plotly Engine API bindings
                 const trace = {
-                    x: scenarios.map(s => s.Scenario),
-                    y: scenarios.map(s => s['Cooling reduction (°C)']),
+                    x: data.scenarios.map(s => s.Scenario),
+                    y: data.scenarios.map(s => s['Cooling reduction (°C)']),
                     type: 'bar',
-                    marker: { color: 'rgba(59, 130, 246, 0.7)' }
+                    marker: { color: 'rgba(59, 130, 246, 0.75)' }
                 };
                 const layout = {
-                    title: 'Cooling reduction (°C) per mitigation strategy',
-                    margin: { t: 40, b: 40, l: 40, r: 20 }
+                    margin: { t: 20, b: 50, l: 40, r: 20 },
+                    yaxis: { title: 'Temperature Drop (°C)' }
                 };
                 Plotly.newPlot('plotlyChart', [trace], layout);
 
                 resultsDiv.classList.remove('hidden');
             } catch (err) {
-                alert(`Simulation failed: ${err.message}`);
+                alert(`Simulation calculation error: ${err.message}`);
             } finally {
                 statusDiv.classList.add('hidden');
             }

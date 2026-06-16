@@ -25,8 +25,8 @@
             <div>
                 <label class="block text-sm font-medium mb-1">Date Range</label>
                 <div class="flex space-x-1">
-                    <input id="startDate" type="date" value="2025-04-01" class="w-full p-1 border rounded text-sm">
-                    <input id="endDate" type="date" value="2025-06-30" class="w-full p-1 border rounded text-sm">
+                    <input id="startDate" type="date" value="2023-05-01" class="w-full p-1 border rounded text-sm">
+                    <input id="endDate" type="date" value="2023-07-31" class="w-full p-1 border rounded text-sm">
                 </div>
             </div>
             <button onclick="runSimulation()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium p-2 rounded transition">Run Simulation</button>
@@ -94,9 +94,7 @@
             const resultsDiv = document.getElementById('results');
             
             statusDiv.classList.remove('hidden');
-            statusDiv.innerText = "Connecting to Earth Engine and processing models... (takes up to 30-45 seconds)";
-            
-            // FIXED LINE 72: Added .classList correctly
+            statusDiv.innerText = "Connecting to Earth Engine and processing models... (takes up to 45 seconds)";
             resultsDiv.classList.add('hidden');
 
             const payload = {
@@ -106,8 +104,11 @@
                 end_date: document.getElementById('endDate').value
             };
 
+            // Detect if running on localhost environment vs live on Vercel deployment production
             const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
             const apiUrl = isLocal ? 'http://127.0.0.1:8000/api/simulate' : '/api/simulate';
+
+            console.log("Attempting contact with endpoint target:", apiUrl);
 
             try {
                 const response = await fetch(apiUrl, {
@@ -116,19 +117,23 @@
                     body: JSON.stringify(payload)
                 });
 
-                if (!response.ok) throw new Error(await response.text());
+                if (!response.ok) {
+                    const errText = await response.text();
+                    throw new Error(`Server returned status ${response.status}: ${errText}`);
+                }
+                
                 const data = await response.json();
 
-                // 1. Populate metrics
-                document.getElementById('cityNameSuccess').innerText = `✓ Loaded data metrics for: ${data.display_name}`;
+                // 1. Populate metric numeric dashboard blocks
+                document.getElementById('cityNameSuccess').innerText = `✓ Successfully loaded metrics matching standard for: ${data.display_name}`;
                 document.getElementById('metricLst').innerText = `${data.metrics.baseline_lst_c.toFixed(2)} °C`;
                 document.getElementById('metricHotspot').innerText = `${data.metrics.hotspot_share_pct.toFixed(2)} %`;
                 document.getElementById('metricNdvi').innerText = `${data.metrics.mean_ndvi.toFixed(2)}`;
 
-                // 2. Load Folium map string content
+                // 2. Load interactive HTML components directly inside the iframe view context
                 document.getElementById('mapFrame').srcdoc = data.map_html;
 
-                // 3. Render Table
+                // 3. Render tabular layout
                 const tableBody = document.getElementById('scenarioTableBody');
                 tableBody.innerHTML = "";
                 data.scenarios.forEach(row => {
@@ -143,14 +148,14 @@
                     tableBody.appendChild(tr);
                 });
 
-                // 4. Set Alert recommendation textual content
+                // 4. Highlight recommendation banner metrics
                 document.getElementById('bestScenarioAlert').innerHTML = `
                     <strong>Optimal Strategy:</strong> ${data.best_scenario.Scenario} yields the highest benefit, 
                     reducing ambient heat values by <strong>${data.best_scenario['Cooling reduction (°C)'].toFixed(2)} °C</strong> 
                     (${data.best_scenario['Cooling reduction (%)'].toFixed(2)}% drop).
                 `;
 
-                // 5. Render Chart via Upgraded Plotly Engine API bindings
+                // 5. Structure custom performance charts via Plotly Engine API bindings
                 const trace = {
                     x: data.scenarios.map(s => s.Scenario),
                     y: data.scenarios.map(s => s['Cooling reduction (°C)']),
@@ -163,11 +168,14 @@
                 };
                 Plotly.newPlot('plotlyChart', [trace], layout);
 
+                // Reveal dashboard elements smoothly
                 resultsDiv.classList.remove('hidden');
-            } catch (err) {
-                alert(`Simulation calculation error: ${err.message}`);
-            } finally {
                 statusDiv.classList.add('hidden');
+
+            } catch (err) {
+                console.error("Simulation Execution Blocked:", err);
+                statusDiv.innerText = `Execution Error: ${err.message}`;
+                alert(`Simulation Catch Alert:\n\n${err.message}\n\nCheck browser developer tools (F12 Console) or check Vercel platform dashboard logs.`);
             }
         }
     </script>
